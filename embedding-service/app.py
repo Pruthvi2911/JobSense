@@ -9,6 +9,7 @@ load_dotenv()
 
 from embeddings import get_embedding, load_model # .embeddings assumes embeddings.py is in the same directory
 import vector_store
+import rag
 
 # Configure logging (consistent with embeddings.py)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -97,6 +98,28 @@ def index_jobs_bulk(payload: BulkJobsIn):
         logger.error(f"Bulk indexing of {len(payload.jobs)} jobs failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Bulk indexing failed. Check service logs.")
     return {"indexed": n, "count": vector_store.get_collection().count()}
+
+class MatchFilters(BaseModel):
+    tags: list[str] | None = None
+    location: str | None = None
+    posted_after: int | None = Field(None, description="Unix epoch seconds.")
+
+class MatchIn(BaseModel):
+    resume_text: str = Field(..., min_length=1)
+    top_k: int = Field(5, ge=1, le=10)
+    filters: MatchFilters | None = None
+
+@app.post("/match")
+def match_resume(payload: MatchIn):
+    """RAG: retrieve the top_k jobs from ChromaDB, then explain them with the LLM."""
+    if not payload.resume_text.strip():
+        raise HTTPException(status_code=400, detail="resume_text cannot be empty.")
+    filters = payload.filters.model_dump() if payload.filters else None
+    try:
+        return rag.match(payload.resume_text, payload.top_k, filters)
+    except Exception as e:
+        logger.error(f"/match failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Matching failed. Check service logs.")
 
 @app.get("/index/stats")
 def index_stats():
