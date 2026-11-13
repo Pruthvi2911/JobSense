@@ -30,11 +30,9 @@ const parsePdfResume = async (pdfBuffer) => {
     }
     return data.text;
   } catch (error) {
-    logger.error('Error parsing PDF:', error);
-    if (error.message && error.message.includes('Invalid PDF_js src')) {
-        throw new ApiError(400, 'Invalid PDF file format or corrupted PDF.');
-    }
-    throw new ApiError(500, `Failed to parse PDF resume: ${error.message}`);
+    // pdf-parse fails on corrupted or unusual files: that's a problem with the upload, not the server.
+    logger.warn(`Could not parse uploaded PDF: ${error.message}`);
+    throw new ApiError(400, 'Could not read this PDF. It may be corrupted; try exporting it again.');
   }
 };
 

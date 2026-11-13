@@ -18,13 +18,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const matchingSectionEl = document.getElementById('matching-section');
     const matchJobsBtn = document.getElementById('matchJobsBtn');
     const matchingStatusEl = document.getElementById('matchingStatus');
-    
+    const filterTagsEl = document.getElementById('filterTags');
+    const filterPostedAfterEl = document.getElementById('filterPostedAfter');
+
     // Job results elements
     const jobResultsEl = document.getElementById('jobResults');
     const jobResultsPlaceholder = jobResultsEl ? jobResultsEl.querySelector('.placeholder-text') : null;
     
     const themeToggleButton = document.getElementById('theme-toggle');
-    let currentResumeEmbedding = null;
+    let currentResumeId = null;
+
+    // --- Escape text before putting it into innerHTML (job text and LLM output are untrusted) ---
+    const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+    const safeUrl = (url) => (/^https?:\/\//i.test(url || '') ? url : '#');
 
     // --- Helper to update auto fetch status with spinner ---
     function updateAutoFetchStatus(text, showSpinner = false) {
@@ -152,23 +160,25 @@ document.addEventListener('DOMContentLoaded', () => {
                         parsedResumeTextEl.textContent = 'No text content found in PDF.';
                         parsedResumeDetailsEl.style.display = 'block';
                     }
-                    currentResumeEmbedding = result.data.resumeEmbedding;
-                    if (currentResumeEmbedding && currentResumeEmbedding.length > 0) {
+                    // Match is enabled once the text is parsed and the resume is saved
+                    currentResumeId = result.data.resumeId;
+                    if (currentResumeId) {
                         matchingSectionEl.style.display = 'block';
-                        statusMsg += 'Embedding generated.';
+                        matchJobsBtn.disabled = false;
+                        statusMsg += 'Ready to match.';
                         matchingStatusEl.textContent = ''; // Clear previous matching status
                     } else {
-                        statusMsg += 'Could not generate embedding.';
+                        statusMsg += 'Nothing to match on.';
                         matchingSectionEl.style.display = 'none';
                     }
                     resumeProcessStatusEl.textContent = statusMsg;
                 } else {
                     resumeProcessStatusEl.textContent = `Error: ${result.message || 'Failed to process resume.'}`;
-                    currentResumeEmbedding = null;
+                    currentResumeId = null;
                 }
             } catch (error) {
                 resumeProcessStatusEl.textContent = 'Upload failed. Check console.';
-                currentResumeEmbedding = null;
+                currentResumeId = null;
                 console.error('Resume Upload Error:', error);
             }
             setButtonBusy(uploadBtn, false);
@@ -178,11 +188,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Match Jobs Logic ---
     if (matchJobsBtn) {
         matchJobsBtn.addEventListener('click', async () => {
-            if (!currentResumeEmbedding || currentResumeEmbedding.length === 0) {
-                matchingStatusEl.textContent = 'Please upload and process a resume first to get an embedding.';
+            if (!currentResumeId) {
+                matchingStatusEl.textContent = 'Please upload and process a resume first.';
                 return;
             }
-            matchingStatusEl.textContent = 'Finding matching jobs...';
+            const filters = {};
+            const tags = filterTagsEl.value.split(',').map((t) => t.trim()).filter(Boolean);
+            if (tags.length) filters.tags = tags;
+            if (filterPostedAfterEl.value) filters.postedAfter = filterPostedAfterEl.value; // "YYYY-MM-DD"
+
+            matchingStatusEl.textContent = 'Finding matching jobs and writing explanations...';
             if (jobResultsPlaceholder) jobResultsPlaceholder.style.display = 'none';
             jobResultsEl.innerHTML = ''; 
             setButtonBusy(matchJobsBtn, true);
@@ -191,15 +206,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 const response = await fetch(`${backendUrl}/match/jobs`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        resumeEmbedding: currentResumeEmbedding,
-                        topN: 7, 
-                    }),
+                    body: JSON.stringify({ resumeId: currentResumeId, filters }),
                 });
                 const result = await response.json();
                 if (result.success && result.data) {
                     if (result.data.length > 0) {
-                        matchingStatusEl.textContent = `Found ${result.data.length} matched jobs.`;
+                        matchingStatusEl.textContent = `Found ${result.data.length} matched jobs.` +
+                            (result.llmStatus === 'ok' ? '' : ' (Some or all explanations are unavailable right now.)');
                         displayJobResults(result.data); // This function will handle the placeholder internally
                     } else {
                         matchingStatusEl.textContent = 'No matching jobs found based on your resume.';
@@ -238,22 +251,26 @@ document.addEventListener('DOMContentLoaded', () => {
             const jobCard = document.createElement('article');
             jobCard.className = 'job-card-custom'; 
             
-            const title = job.title || 'N/A';
-            const company = job.company || 'N/A';
-            const location = job.location || 'N/A';
-            const source = job.source || 'N/A';
-            const url = job.url || '#';
-            const descriptionSnippet = job.parsedDescriptionSnippet || 'No description snippet available.';
-            const similarityText = job.similarityScore ? `<mark>${(job.similarityScore * 100).toFixed(1)}%</mark>` : '';
+            const title = escapeHtml(job.title || 'N/A');
+            const company = escapeHtml(job.company || 'N/A');
+            const location = escapeHtml(job.location || 'N/A');
+            const url = escapeHtml(safeUrl(job.url));
+            const similarityText = typeof job.similarity === 'number' ? `<mark>${(job.similarity * 100).toFixed(1)}%</mark>` : '';
+            const explanation = job.fit_explanation
+                ? escapeHtml(job.fit_explanation)
+                : '<em>Explanation unavailable right now.</em>';
+            const missing = (job.missing_skills || []).map(escapeHtml).join(', ');
+            const tags = (job.tags || []).slice(0, 8).map(escapeHtml).join(', ');
 
             jobCard.innerHTML = `
                 <header><h3>${title}</h3></header>
                 <p><strong>Company:</strong> ${company}</p>
                 <p><strong>Location:</strong> ${location}</p>
-                ${source !== 'N/A' ? `<p><strong>Source:</strong> ${source}</p>` : ''}
                 ${similarityText ? `<p><strong>Similarity: ${similarityText}</strong></p>` : ''}
-                <details><summary>View Description Snippet</summary><p>${descriptionSnippet}</p></details>
-                <footer style="margin-top: auto; padding-top: 1rem; border-top: 1px solid #e9ecef;"><a href="${url}" target="_blank" role="button" class="outline">View Job Listing</a></footer>
+                <p><strong>Why it fits:</strong> ${explanation}</p>
+                ${missing ? `<p><strong>Missing skills:</strong> ${missing}</p>` : ''}
+                ${tags ? `<details><summary>Tags</summary><p>${tags}</p></details>` : ''}
+                <footer style="margin-top: auto; padding-top: 1rem; border-top: 1px solid #e9ecef;"><a href="${url}" target="_blank" rel="noopener noreferrer" role="button" class="outline">View Job Listing</a></footer>
             `;
             jobResultsEl.appendChild(jobCard);
         });

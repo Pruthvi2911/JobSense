@@ -107,7 +107,7 @@ const getJobs = async (filters = {}, paginationOptions = { page: 1, limit: 10 })
             .sort({ createdAt: -1 }) // Sort by newest first
             .skip(skip)
             .limit(limit)
-            .select('-embedding -description'); // Exclude large fields by default
+            .select('-description'); // Exclude the large raw HTML field
 
         const totalJobs = await Job.countDocuments(query);
         const totalPages = Math.ceil(totalJobs / limit);

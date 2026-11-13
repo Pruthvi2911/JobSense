@@ -50,8 +50,16 @@
              <header>
                 <h2>Step 2: Find Matching Jobs</h2>
             </header>
-            <p>Based on your uploaded resume.</p>
-            <button id="matchJobsBtn" aria-busy="false">Match Jobs</button>
+            <p>Based on your uploaded resume. Filters are optional.</p>
+            <div class="grid">
+                <label for="filterTags">Tags (comma separated)
+                    <input type="text" id="filterTags" placeholder="e.g. python, react">
+                </label>
+                <label for="filterPostedAfter">Posted after
+                    <input type="date" id="filterPostedAfter">
+                </label>
+            </div>
+            <button id="matchJobsBtn" aria-busy="false" disabled>Match Jobs</button>
             <p id="matchingStatus" class="status-message"></p>
         </section>
 

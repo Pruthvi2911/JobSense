@@ -43,4 +43,19 @@ const getIndexCount = async () => {
   return data.count;
 };
 
-module.exports = { toIndexPayload, indexJob, indexJobsBulk, getIndexCount };
+/**
+ * RAG match: FastAPI retrieves the top jobs from ChromaDB and asks the LLM to explain them.
+ * @param {string} resumeText
+ * @param {{tags?: string[], location?: string, posted_after?: number}} [filters]
+ * @returns {Promise<{llm_status: string, results: object[]}>}
+ */
+const matchResume = async (resumeText, filters) => {
+  const { data } = await axios.post(
+    `${baseUrl}/match`,
+    { resume_text: resumeText, top_k: 5, filters },
+    { timeout: 60000 }
+  );
+  return data;
+};
+
+module.exports = { toIndexPayload, indexJob, indexJobsBulk, getIndexCount, matchResume };

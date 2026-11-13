@@ -55,20 +55,7 @@ const jobSchema = new mongoose.Schema(
       type: [String], // Array of keywords/tags extracted or assigned
       index: true,
     },
-    embedding: {
-      type: [Number], // Array of floats representing the embedding vector
-      // Not strictly required here, as it's added after fetching from embedding service
-      // We might make this required if we only save jobs that have been successfully embedded.
-      // For now, let's make it optional at the schema level.
-      // The dimension should match your embedding model (all-MiniLM-L6-v2 has 384 dimensions)
-      validate: {
-        validator: function(v) {
-          // Allow empty array (not yet embedded) or array of 384 numbers
-          return v === null || v.length === 0 || v.length === 384;
-        },
-        message: props => `${props.value} is not a valid embedding! Must be null, empty, or have 384 dimensions.`
-      }
-    },
+    // Embeddings live in ChromaDB (same id as this document), not in Mongo.
     postedDate: { // Date when the job was posted (if available from scrape)
       type: Date,
     },
@@ -88,17 +75,6 @@ const jobSchema = new mongoose.Schema(
 // Optional: Create a text index for more complex text searches directly in MongoDB
 // This is different from semantic search with embeddings.
 // jobSchema.index({ title: 'text', company: 'text', description: 'text', tags: 'text' });
-
-// Method to ensure embedding dimensions are correct if we want to be stricter
-// This could be used before saving if needed, but validation is often enough.
-// jobSchema.pre('save', function(next) {
-//   if (this.embedding && this.embedding.length > 0 && this.embedding.length !== 384) {
-//     const err = new Error('Job embedding vector must have 384 dimensions.');
-//     logger.error(err.message, { jobId: this._id, url: this.url });
-//     return next(err);
-//   }
-//   next();
-// });
 
 const Job = mongoose.model('Job', jobSchema);
 

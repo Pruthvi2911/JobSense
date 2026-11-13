@@ -1,10 +1,12 @@
 const express = require('express');
+// Must load before any routes are defined, so errors thrown in async handlers
+// reach the error handler instead of crashing the process.
+require('express-async-errors');
 const cors = require('cors');
 const config = require('./config');
 const logger = require('./utils/logger');
 const { errorConverter, errorHandler, ApiError } = require('./middlewares/errorHandler');
 const v1ApiRoutes = require('./routes'); // Import the main router
-require('express-async-errors');
 
 const app = express();
 

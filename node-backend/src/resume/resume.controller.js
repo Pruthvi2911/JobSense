@@ -1,7 +1,7 @@
 const resumeService = require('./resume.service');
+const Resume = require('../db/models/Resume.model');
 const { ApiError } = require('../middlewares/errorHandler');
 const logger = require('../utils/logger');
-const embeddingClient = require('../embeddingClient/embedding.client'); // Import the client
 
 const uploadAndParseResume = async (req, res) => {
   if (!req.file) {
@@ -10,47 +10,26 @@ const uploadAndParseResume = async (req, res) => {
 
   logger.info(`Received resume file: ${req.file.originalname}, size: ${req.file.size} bytes`);
 
-  const pdfBuffer = req.file.buffer;
-  const resumeText = await resumeService.parsePdfResume(pdfBuffer);
+  const resumeText = await resumeService.parsePdfResume(req.file.buffer);
 
   if (!resumeText || resumeText.trim().length === 0) {
     logger.warn(`Resume parsed but no text content found for file: ${req.file.originalname}`);
     return res.status(200).json({
       success: true,
-      message: 'Resume processed. Warning: No text content extracted.',
-      data: {
-        originalFilename: req.file.originalname,
-        parsedText: '',
-        resumeEmbedding: [], // Return empty array for embedding if no text
-      },
+      message: 'Resume processed. Warning: No text content extracted (is it a scanned image?).',
+      data: { resumeId: null, originalFilename: req.file.originalname, parsedText: '' },
     });
   }
 
-  // Get embedding for the parsed resume text
-  let resumeEmbedding = [];
-  try {
-    resumeEmbedding = await embeddingClient.getEmbedding(resumeText);
-    if (!resumeEmbedding || resumeEmbedding.length === 0) {
-        logger.warn(`Embedding for resume '${req.file.originalname}' was empty. This might happen if the text was too short or the embedding service had an issue with it.`);
-        // Decide if this is a critical error. For now, proceed but log.
-    }
-  } catch (error) {
-    // Log the error but don't necessarily fail the whole request if embedding fails,
-    // unless it's critical. For now, we'll proceed without the embedding and log.
-    // The error would have already been logged by embeddingClient.
-    logger.error(`Failed to get embedding for resume '${req.file.originalname}'. Proceeding without embedding. Error: ${error.message}`);
-    // If embedding is CRITICAL, you might re-throw or throw a new ApiError here:
-    // throw new ApiError(500, `Could not generate embedding for the resume: ${error.message}`);
-  }
+  const resume = await Resume.create({ originalFilename: req.file.originalname, text: resumeText });
 
   res.status(200).json({
     success: true,
-    message: 'Resume uploaded, parsed, and processed for embedding.',
+    message: 'Resume uploaded, parsed and saved.',
     data: {
-      originalFilename: req.file.originalname,
+      resumeId: String(resume._id),
+      originalFilename: resume.originalFilename,
       parsedText: resumeText,
-      resumeEmbedding: resumeEmbedding, // Include the embedding (or empty array if failed/empty)
-      embeddingDimension: resumeEmbedding.length, // Useful for quick check
     },
   });
 };
