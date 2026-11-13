@@ -16,8 +16,9 @@ const config = {
       // useFindAndModify: false, // Deprecated
     },
   },
-  embeddingService: {
-    url: process.env.EMBEDDING_SERVICE_URL,
+  aiService: {
+    // Base URL of the FastAPI service, e.g. http://localhost:8001 (paths are added in code)
+    url: (process.env.AI_SERVICE_URL || '').replace(/\/+$/, ''),
   },
   email: {
     smtp: {
@@ -38,8 +39,8 @@ const config = {
 if (!config.mongo.uri) {
   throw new Error('FATAL ERROR: MONGO_URI is not defined in .env file');
 }
-if (!config.embeddingService.url) {
-  throw new Error('FATAL ERROR: EMBEDDING_SERVICE_URL is not defined in .env file');
+if (!config.aiService.url) {
+  throw new Error('FATAL ERROR: AI_SERVICE_URL is not defined in .env file');
 }
 
 module.exports = config;

@@ -75,7 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const item = result.data[0];
                     if (item.status === 'success' || item.status === 'success_mocked') {
                         // Log details for dev, but keep UI message simple
-                        console.log(`Job Update Details: Source records: ${item.jobsFound}, Added: ${item.jobsAdded}, Existed: ${item.jobsAlreadyExisted}, Embed Failed: ${item.jobsFailedToEmbed}`);
+                        console.log(`Job Update Details: Source records: ${item.jobsFound}, Added: ${item.jobsAdded}, Existed: ${item.jobsAlreadyExisted}, Index Failed: ${item.jobsFailedToIndex}`);
                     } else if (item.error) {
                         finalStatusMessage = `Job update issue: ${item.error}`;
                         updateError = true;

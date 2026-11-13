@@ -2,7 +2,7 @@ const axios = require('axios');
 const cheerio = require('cheerio'); // Still needed to parse HTML description from API
 const Job = require('../db/models/Job.model');
 const logger = require('../utils/logger');
-const embeddingClient = require('../embeddingClient/embedding.client');
+const aiClient = require('../aiClient/ai.client');
 const { ApiError } = require('../middlewares/errorHandler');
 
 const SOURCE_NAME = 'RemoteOK_API'; // Clear name for this source
@@ -15,7 +15,7 @@ async function fetchRemoteOkAPI() {
   logger.info(`Starting job fetch for ${SOURCE_NAME} from ${API_URL}`);
   let jobsFoundInAPI = 0;
   let jobsAdded = 0;
-  let jobsFailedToEmbed = 0;
+  let jobsFailedToIndex = 0;
   let jobsAlreadyExisted = 0;
 
   try {
@@ -28,7 +28,7 @@ async function fetchRemoteOkAPI() {
 
     if (!Array.isArray(apiResponse) || apiResponse.length === 0) {
       logger.warn('RemoteOK API did not return an array or returned an empty array.');
-      return { source: SOURCE_NAME, url: API_URL, jobsFound: 0, jobsAdded: 0, jobsAlreadyExisted: 0, jobsFailedToEmbed: 0, status: 'api_no_data' };
+      return { source: SOURCE_NAME, url: API_URL, jobsFound: 0, jobsAdded: 0, jobsAlreadyExisted: 0, jobsFailedToIndex: 0, status: 'api_no_data' };
     }
 
     // The first element is often a legal notice, skip it.
@@ -80,21 +80,6 @@ async function fetchRemoteOkAPI() {
         const postedDate = jobData.date ? new Date(jobData.date) : (jobData.epoch ? new Date(jobData.epoch * 1000) : new Date());
 
 
-        const textToEmbed = `${jobTitle} ${plainTextDescription}`;
-        let jobEmbedding = [];
-        if (plainTextDescription.trim()) { // Only embed if there's actual text
-            try {
-              jobEmbedding = await embeddingClient.getEmbedding(textToEmbed);
-            } catch (embeddingError) {
-              logger.error(`Failed to get embedding for API job "${jobTitle}" at ${jobUrl}. Error: ${embeddingError.message}.`);
-              jobsFailedToEmbed++;
-              // Decide: skip job entirely, or save without embedding? For now, save without.
-            }
-        } else {
-            logger.warn(`Skipping embedding for API job "${jobTitle}" at ${jobUrl} due to empty parsed description.`);
-        }
-
-
         const newJob = new Job({
           title: jobTitle,
           company: companyName,
@@ -106,7 +91,6 @@ async function fetchRemoteOkAPI() {
           isRemote: true, // All jobs from RemoteOK are remote
           tags: tagsFromApi,
           experienceLevel: undefined, // API doesn't seem to provide this directly, could try to infer from tags/desc later
-          embedding: jobEmbedding.length > 0 ? jobEmbedding : undefined,
           postedDate: postedDate,
           // sourceSpecificId: apiJobId, // Optional: if you want to store the API's own ID
         });
@@ -114,6 +98,15 @@ async function fetchRemoteOkAPI() {
         await newJob.save();
         jobsAdded++;
         logger.info(`Added job from API: "${jobTitle}" at ${companyName}`);
+
+        // Put the saved job into ChromaDB. If the AI service is down we keep going;
+        // scripts/backfill-index.js can index it later.
+        try {
+          await aiClient.indexJob(newJob);
+        } catch (indexError) {
+          jobsFailedToIndex++;
+          logger.error(`Failed to index job "${jobTitle}" (${newJob._id}) in ChromaDB: ${indexError.message}`);
+        }
 
         // Optional: small delay if processing many jobs to be nice to DB or other services
         if (i < jobEntries.length - 1 && (i % 10 === 0) ) { // e.g., delay every 10 jobs
@@ -125,14 +118,14 @@ async function fetchRemoteOkAPI() {
       }
     }
 
-    logger.info(`${SOURCE_NAME} API processing finished. Found in API: ${jobsFoundInAPI}, Added New: ${jobsAdded}, Already Existed: ${jobsAlreadyExisted}, Failed to Embed: ${jobsFailedToEmbed}.`);
+    logger.info(`${SOURCE_NAME} API processing finished. Found in API: ${jobsFoundInAPI}, Added New: ${jobsAdded}, Already Existed: ${jobsAlreadyExisted}, Failed to Index: ${jobsFailedToIndex}.`);
     return {
         source: SOURCE_NAME,
         url: API_URL,
         jobsFound: jobsFoundInAPI,
         jobsAdded,
         jobsAlreadyExisted,
-        jobsFailedToEmbed,
+        jobsFailedToIndex,
         status: 'success'
     };
 
@@ -147,7 +140,7 @@ async function fetchRemoteOkAPI() {
         status: 'failed_api_request',
         error: error.message, 
         statusCode: error.isAxiosError && error.response ? error.response.status : 500,
-        jobsFound: 0, jobsAdded: 0, jobsAlreadyExisted: 0, jobsFailedToEmbed: 0
+        jobsFound: 0, jobsAdded: 0, jobsAlreadyExisted: 0, jobsFailedToIndex: 0
     };
   }
 }

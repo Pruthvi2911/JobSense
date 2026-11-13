@@ -3,14 +3,7 @@ const config = require('../config');
 const logger = require('../utils/logger');
 const { ApiError } = require('../middlewares/errorHandler');
 
-const embeddingServiceUrl = config.embeddingService.url;
-
-if (!embeddingServiceUrl) {
-  logger.error('FATAL ERROR: Embedding service URL is not configured in .env (EMBEDDING_SERVICE_URL).');
-  // Depending on policy, you might throw an error here to prevent app startup
-  // or allow it to run but log that embedding will fail.
-  // For now, we've already checked this in config/index.js, so this is a double check.
-}
+const embeddingServiceUrl = config.aiService.url ? `${config.aiService.url}/embed` : '';
 
 /**
  * Gets an embedding vector for the given text from the Python embedding service.

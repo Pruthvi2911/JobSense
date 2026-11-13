@@ -8,6 +8,7 @@ import os
 load_dotenv()
 
 from embeddings import get_embedding, load_model # .embeddings assumes embeddings.py is in the same directory
+import vector_store
 
 # Configure logging (consistent with embeddings.py)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -26,6 +27,19 @@ class EmbeddingResponse(BaseModel):
     text: str
     embedding: list[float]
     model_name: str
+
+class JobIn(BaseModel):
+    job_id: str = Field(..., min_length=1, description="Mongo _id, used as the Chroma id.")
+    title: str
+    company: str
+    location: str = ""
+    url: str
+    tags: list[str] = []
+    posted_date: int = Field(0, description="Unix epoch seconds.")
+    description: str = ""
+
+class BulkJobsIn(BaseModel):
+    jobs: list[JobIn]
 
 @app.on_event("startup")
 async def startup_event():
@@ -63,6 +77,31 @@ async def embed_text_endpoint(payload: TextPayload = Body(...)):
     except Exception as e:
         logger.error(f"Unexpected error in /embed endpoint for text '{payload.text[:50]}...': {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@app.post("/index")
+def index_job(job: JobIn):
+    """Embed one job and upsert it into ChromaDB."""
+    try:
+        vector_store.upsert_jobs([job.model_dump()])
+    except Exception as e:
+        logger.error(f"Indexing job {job.job_id} failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Indexing failed. Check service logs.")
+    return {"indexed": 1, "count": vector_store.get_collection().count()}
+
+@app.post("/index/bulk")
+def index_jobs_bulk(payload: BulkJobsIn):
+    """Embed many jobs in one batch and upsert them into ChromaDB."""
+    try:
+        n = vector_store.upsert_jobs([j.model_dump() for j in payload.jobs])
+    except Exception as e:
+        logger.error(f"Bulk indexing of {len(payload.jobs)} jobs failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Bulk indexing failed. Check service logs.")
+    return {"indexed": n, "count": vector_store.get_collection().count()}
+
+@app.get("/index/stats")
+def index_stats():
+    """How many jobs are in ChromaDB."""
+    return {"count": vector_store.get_collection().count()}
 
 @app.get("/health", status_code=200)
 async def health_check():
