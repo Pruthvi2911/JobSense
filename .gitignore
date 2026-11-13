@@ -38,3 +38,8 @@ Thumbs.db
 
 # Optional: Docker
 docker-compose.override.yml
+
+# Secrets and local data (any folder)
+.env
+**/chroma_data/
+**/.venv/
